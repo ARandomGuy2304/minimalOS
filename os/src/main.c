@@ -2,17 +2,15 @@
 #include <stddef.h>
 #include "limine.h"
 
-static volatile struct limine_framebuffer_request framebuffer_request;
+static volatile struct limine_framebuffer_request framebuffer_request = {
+    .id = LIMINE_FRAMEBUFFER_REQUEST_ID,
+    .revision = 0
+};
 
 __attribute__((used, section(".limine_requests")))
 static volatile void *limine_requests[] = {
     (void *)&framebuffer_request,
     NULL
-};
-
-static volatile struct limine_framebuffer_request framebuffer_request = {
-    .id = LIMINE_FRAMEBUFFER_REQUEST_ID,
-    .revision = 0
 };
 
 static const uint8_t font[128][8] = {
@@ -113,49 +111,250 @@ static const uint8_t font[128][8] = {
     ['~'] = {0x00, 0x00, 0x24, 0x5A, 0x42, 0x00, 0x00, 0x00}
 };
 
-static void hang(void) {
-    for (;;) {
-        __asm__("hlt");
+static int cursor_x = 10;
+static int cursor_y = 10;
+static const int start_x = 10;
+static struct limine_framebuffer *fb;
+
+#define CMD_BUFFER_MAX 256
+static char cmd_buffer[CMD_BUFFER_MAX];
+static int cmd_buffer_idx = 0;
+
+static int strcmp(const char *s1, const char *s2) {
+    while (*s1 && (*s1 == *s2)) {
+        s1++;
+        s2++;
+    }
+    return *(const unsigned char*)s1 - *(const unsigned char*)s2;
+}
+
+static void int_to_str(uint32_t num, char *str) {
+    int i = 0;
+    if (num == 0) {
+        str[i++] = '0';
+        str[i] = '\0';
+        return;
+    }
+    while (num > 0) {
+        str[i++] = (num % 10) + '0';
+        num /= 10;
+    }
+    str[i] = '\0';
+    for (int j = 0; j < i / 2; j++) {
+        char temp = str[j];
+        str[j] = str[i - j - 1];
+        str[i - j - 1] = temp;
     }
 }
 
-void draw_char(struct limine_framebuffer *fb, char c, int x, int y, uint32_t color) {
+static inline uint8_t inb(uint16_t port) {
+    uint8_t ret;
+    __asm__ volatile ("inb %1, %0" : "=a"(ret) : "Nd"(port));
+    return ret;
+}
+
+static const char scancode_table[128] = {
+    0,  27, '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '=', '\b',
+  '\t', 'q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p', '[', ']', '\n',
+    0,  'a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', ';', '\'', '`', 0,
+  '\\', 'z', 'x', 'c', 'v', 'b', 'n', 'm', ',', '.', '/', 0, '*', 0, ' '
+};
+
+void terminal_print(const char *str);
+
+void draw_char(char c, int x, int y, uint32_t color) {
+    if (!fb) return;
     uint32_t *fb_ptr = (uint32_t *)fb->address;
     size_t stride = fb->pitch / 4; 
 
     for (int row = 0; row < 8; row++) {
         uint8_t font_row = font[(uint8_t)c][row];
         for (int col = 0; col < 8; col++) {
+            size_t pixel_index = (y + row) * stride + (x + col);
             if (font_row & (0x80 >> col)) {
-                size_t pixel_index = (y + row) * stride + (x + col);
                 fb_ptr[pixel_index] = color;
+            } else {
+                fb_ptr[pixel_index] = 0x000000;
             }
         }
     }
 }
 
-void print_string(struct limine_framebuffer *fb, const char *str, int x, int y, uint32_t color) {
+void clear_screen(void) {
+    if (!fb) return;
+    uint32_t *fb_ptr = (uint32_t *)fb->address;
+    size_t total_pixels = (fb->pitch / 4) * fb->height;
+    for (size_t i = 0; i < total_pixels; i++) {
+        fb_ptr[i] = 0x000000;
+    }
+    cursor_x = start_x;
+    cursor_y = 10;
+}
+
+void clear_char_at(int x, int y) {
+    if (!fb) return;
+    uint32_t *fb_ptr = (uint32_t *)fb->address;
+    size_t stride = fb->pitch / 4;
+    for (int row = 0; row < 8; row++) {
+        for (int col = 0; col < 8; col++) {
+            fb_ptr[(y + row) * stride + (x + col)] = 0x000000;
+        }
+    }
+}
+
+void terminal_write_char(char c) {
+    if (!fb) return;
+
+    if (c == '\n') {
+        cursor_x = start_x;
+        cursor_y += 12;
+    } 
+    else if (c == '\b') {
+        if (cursor_x > start_x + 16) { 
+            cursor_x -= 8;
+            clear_char_at(cursor_x, cursor_y);
+        }
+    } 
+    else {
+        draw_char(c, cursor_x, cursor_y, 0xFFFFFF);
+        cursor_x += 8;
+
+        if (cursor_x >= (int)fb->width - 10) {
+            cursor_x = start_x;
+            cursor_y += 12;
+        }
+    }
+
+    if (cursor_y >= (int)fb->height - 20) {
+        clear_screen();
+        terminal_print("> ");
+    }
+}
+
+void terminal_print(const char *str) {
     while (*str) {
-        draw_char(fb, *str, x, y, color);
-        x += 8; 
+        terminal_write_char(*str);
         str++;
     }
 }
 
+void cpu_brand(char brand[49]) {
+    uint32_t *p = (uint32_t *)brand;
+
+    for (uint32_t leaf = 0x80000002; leaf <= 0x80000004; leaf++) {
+        uint32_t eax, ebx, ecx, edx;
+
+        __asm__ volatile (
+            "cpuid"
+            : "=a"(eax), "=b"(ebx), "=c"(ecx), "=d"(edx)
+            : "a"(leaf)
+        );
+
+        *p++ = eax;
+        *p++ = ebx;
+        *p++ = ecx;
+        *p++ = edx;
+    }
+
+    brand[48] = '\0';
+}
+
+void execute_command(const char *cmd) {
+    terminal_print("\n");
+
+    if (strcmp(cmd, "help") == 0) {
+        terminal_print("Available commands:\n");
+        terminal_print("  help     - Show this application menu\n");
+        terminal_print("  clear    - Clear the terminal\n");
+        terminal_print("  sysinfo  - Display basic information\n");
+        terminal_print("  sleep    - Freeze the OS\n");
+    } 
+    else if (strcmp(cmd, "clear") == 0) {
+        clear_screen();
+    } 
+    else if (strcmp(cmd, "sysinfo") == 0) {
+        char width_buf[12];
+        char height_buf[12];
+        int_to_str(fb->width, width_buf);
+        int_to_str(fb->height, height_buf);
+
+        char brand[49];
+        cpu_brand(brand);
+
+        terminal_print("CPU: ");
+        terminal_print(brand);
+        terminal_print("\n");
+
+        terminal_print("OS Kernel: minimalOS-kernel v1.2.0\n");
+        terminal_print("Target architecture: x86_64 (Long Mode)\n");
+        terminal_print("Resolution: ");
+        terminal_print(width_buf);
+        terminal_print("x");
+        terminal_print(height_buf);
+    }
+    else if (strcmp(cmd, "sleep") == 0) {
+        __asm__ volatile("hlt");
+    }
+    else if (strcmp(cmd, "") == 0) {
+    }
+    else {
+        terminal_print("Command not found: ");
+        terminal_print(cmd);
+    }
+
+    terminal_print("\n> ");
+}
+
+char keyboard_get_key(void) {
+    if ((inb(0x64) & 1) == 0) return 0;
+    uint8_t scancode = inb(0x60);
+    if (scancode & 0x80) return 0;
+    if (scancode < 128) return scancode_table[scancode];
+    return 0;
+}
+
 void kernel_main(void) {
     if (framebuffer_request.response == NULL || framebuffer_request.response->framebuffer_count < 1) {
-        hang();
+        for (;;) { __asm__("hlt"); }
     }
 
-    struct limine_framebuffer *framebuffer = framebuffer_request.response->framebuffers[0];
+    fb = framebuffer_request.response->framebuffers[0];
+    clear_screen();
+    
+    terminal_print("minimalOS v1.2\nType 'help' for commands.\n");
+    terminal_print("> ");
 
-    uint32_t *fb_ptr = (uint32_t *)framebuffer->address;
-    size_t total_pixels = (framebuffer->pitch / 4) * framebuffer->height;
-    for (size_t i = 0; i < total_pixels; i++) {
-        fb_ptr[i] = 0x000000;
+    for (;;) {
+        char key = keyboard_get_key();
+        
+        if (key != 0) {
+           if (key == '\n') {
+                cmd_buffer[cmd_buffer_idx] = '\0';
+                terminal_print("\n");
+                
+                if (is_injecting_binary) {
+                    handle_bin_injection(cmd_buffer);
+                    is_injecting_binary = 0;
+                    terminal_print("\n> ");
+                } else {
+                    execute_command(cmd_buffer);
+                }
+                
+                cmd_buffer_idx = 0;
+            }
+            else if (key == '\b') {
+                if (cmd_buffer_idx > 0) {
+                    cmd_buffer_idx--;
+                    terminal_write_char(key);
+                }
+            } 
+            else {
+                if (cmd_buffer_idx < CMD_BUFFER_MAX - 1) {
+                    cmd_buffer[cmd_buffer_idx++] = key;
+                    terminal_write_char(key);
+                }
+            }
+        }
+        __asm__ volatile("pause");
     }
-
-    print_string(framebuffer, "minimalOS booted.", 10, 10, 0xFFFFFF);
-
-    hang();
 }
