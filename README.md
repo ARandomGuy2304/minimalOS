@@ -1,7 +1,7 @@
 # x86_64-Limine-OS
+-------------------
 Create your own x86_64 OS with the Limine bootloader.
 At the end, if done correctly, you get an "image.iso" in the "os" folder.
-------------------------------
 ------ How to create it ------
 
 1. Change directory to "os".
@@ -14,3 +14,4 @@ At the end, if done correctly, you get an "image.iso" in the "os" folder.
    Command: `chmod +x make.sh && ./make.sh`.
 4. Try the ISO file with QEMU.
    Command: `qemu-system-x86_64 -cdrom image.iso`.
+-----------------------
