@@ -326,20 +326,13 @@ void kernel_main(void) {
 
     for (;;) {
         char key = keyboard_get_key();
-        
+
         if (key != 0) {
-           if (key == '\n') {
+            if (key == '\n') {
                 cmd_buffer[cmd_buffer_idx] = '\0';
                 terminal_print("\n");
-                
-                if (is_injecting_binary) {
-                    handle_bin_injection(cmd_buffer);
-                    is_injecting_binary = 0;
-                    terminal_print("\n> ");
-                } else {
-                    execute_command(cmd_buffer);
-                }
-                
+
+                execute_command(cmd_buffer);
                 cmd_buffer_idx = 0;
             }
             else if (key == '\b') {
@@ -347,7 +340,7 @@ void kernel_main(void) {
                     cmd_buffer_idx--;
                     terminal_write_char(key);
                 }
-            } 
+            }
             else {
                 if (cmd_buffer_idx < CMD_BUFFER_MAX - 1) {
                     cmd_buffer[cmd_buffer_idx++] = key;
@@ -355,6 +348,7 @@ void kernel_main(void) {
                 }
             }
         }
+
         __asm__ volatile("pause");
-    }
+}
 }
