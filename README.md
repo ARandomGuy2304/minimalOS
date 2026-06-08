@@ -11,6 +11,6 @@ At the end, if done correctly, you get an "image.iso" in the "os" folder.
    Compile and link with the GNUmakefile.
    Command: `make`.
 3. Download the Limine bootloader and create the ISO file via the provided bash script.
-   Command: `chmod +x make.sh && ./make.sh`.
+   Command: `chmod +x make.sh && ./make.sh` (change the username and password in the bash script if you want).
 4. Try the ISO file with QEMU.
    Command: `qemu-system-x86_64 -cdrom image.iso`.
