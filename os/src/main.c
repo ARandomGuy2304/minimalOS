@@ -299,7 +299,7 @@ void execute_command(const char *cmd) {
         terminal_print(brand);
         terminal_print("\n");
 
-        terminal_print("OS Kernel: minimalOS-kernel v1.2.0\n");
+        terminal_print("OS Kernel: minimalOS-kernel v1.2.1\n");
         terminal_print("Target architecture: x86_64 (Long Mode)\n");
         terminal_print("Resolution: ");
         terminal_print(width_buf);
@@ -335,7 +335,7 @@ void kernel_main(void) {
     fb = framebuffer_request.response->framebuffers[0];
     clear_screen();
     
-    terminal_print("minimalOS v1.2\nType 'help' for commands.\n");
+    terminal_print("minimalOS v1.2.1\nType 'help' for commands.\n");
     terminal_print("> ");
 
     for (;;) {
