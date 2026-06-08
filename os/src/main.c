@@ -116,6 +116,10 @@ static int cursor_y = 10;
 static const int start_x = 10;
 static struct limine_framebuffer *fb;
 
+static int cursor_visible = 0;
+static uint32_t cursor_blink_counter = 0;
+#define CURSOR_BLINK_INTERVAL 100000
+
 #define CMD_BUFFER_MAX 256
 static char cmd_buffer[CMD_BUFFER_MAX];
 static int cmd_buffer_idx = 0;
@@ -202,8 +206,18 @@ void clear_char_at(int x, int y) {
     }
 }
 
+void update_cursor_render(int show) {
+    if (show) {
+        draw_char('_', cursor_x, cursor_y, 0xFFFFFF);
+    } else {
+        clear_char_at(cursor_x, cursor_y);
+    }
+}
+
 void terminal_write_char(char c) {
     if (!fb) return;
+
+    update_cursor_render(0);
 
     if (c == '\n') {
         cursor_x = start_x;
@@ -347,8 +361,19 @@ void kernel_main(void) {
                     terminal_write_char(key);
                 }
             }
+            
+            cursor_visible = 1;
+            cursor_blink_counter = 0;
+            update_cursor_render(1);
+        } else {
+            cursor_blink_counter++;
+            if (cursor_blink_counter >= CURSOR_BLINK_INTERVAL) {
+                cursor_blink_counter = 0;
+                cursor_visible = !cursor_visible;
+                update_cursor_render(cursor_visible);
+            }
         }
 
         __asm__ volatile("pause");
-}
+    }
 }
