@@ -5,6 +5,12 @@ make -C limine-binary
 mkdir -p iso_root
 
 mkdir -p iso_root/boot
+cd ~/iso_root/boot
+
+cat << EOF > user.txt
+admin password123
+EOF
+
 cp -v bin/os iso_root/boot/
 mkdir -p iso_root/boot/limine
 cp -v limine.conf limine-binary/limine-bios.sys limine-binary/limine-bios-cd.bin \
