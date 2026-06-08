@@ -1,5 +1,5 @@
 # minimalOS
-Create your own x86_64 OS with the Limine bootloader.
+Create minimalOS - or a modified version of it.
 At the end, if done correctly, you get an "image.iso" in the "os" folder.
 
 ------ How to create it ------
