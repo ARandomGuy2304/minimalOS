@@ -133,6 +133,7 @@ static uint32_t cursor_blink_counter = 0;
 #define CURSOR_BLINK_INTERVAL 100000
 
 static uint32_t current_text_color = 0xFFFFFF;
+static uint32_t current_bg_color = 0x000000;
 
 #define CMD_BUFFER_MAX 256
 static char cmd_buffer[CMD_BUFFER_MAX];
@@ -196,7 +197,7 @@ void draw_char(char c, int x, int y, uint32_t color) {
             if (font_row & (0x80 >> col)) {
                 fb_ptr[pixel_index] = color;
             } else {
-                fb_ptr[pixel_index] = 0x000000;
+                fb_ptr[pixel_index] = current_bg_color;
             }
         }
     }
@@ -207,7 +208,7 @@ void clear_screen(void) {
     uint32_t *fb_ptr = (uint32_t *)fb->address;
     size_t total_pixels = (fb->pitch / 4) * fb->height;
     for (size_t i = 0; i < total_pixels; i++) {
-        fb_ptr[i] = 0x000000;
+        fb_ptr[i] = current_bg_color;
     }
     cursor_x = start_x;
     cursor_y = 10;
@@ -219,7 +220,7 @@ void clear_char_at(int x, int y) {
     size_t stride = fb->pitch / 4;
     for (int row = 0; row < 8; row++) {
         for (int col = 0; col < 8; col++) {
-            fb_ptr[(y + row) * stride + (x + col)] = 0x000000;
+            fb_ptr[(y + row) * stride + (x + col)] = current_bg_color;
         }
     }
 }
@@ -330,6 +331,29 @@ void init_storage(void) {
     system_password[idx] = '\0';
 }
 
+static int hex_digit(char c) {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+}
+
+static int parse_hex_color(const char *str, uint32_t *color) {
+    uint32_t value = 0;
+
+    for (int i = 0; i < 6; i++) {
+        int digit = hex_digit(str[i]);
+        if (digit < 0) return 0;
+        value = (value << 4) | digit;
+    }
+
+    if (str[6] != '\0')
+        return 0;
+
+    *color = value;
+    return 1;
+}
+
 void execute_command(char *cmd) {
     char *args = "";
     for (int i = 0; cmd[i] != '\0'; i++) {
@@ -371,16 +395,18 @@ void execute_command(char *cmd) {
 
     if (strcmp(cmd, "help") == 0) {
         terminal_print("Available commands:\n");
-        terminal_print("  help      - Show this application menu\n");
-        terminal_print("  clear     - Clear the terminal\n");
-        terminal_print("  sysinfo   - Display basic information\n");
-        terminal_print("  sleep     - Freeze the OS\n");
-        terminal_print("  echo      - Print arguments directly to screen\n");
-        terminal_print("  logout    - Log out\n");
-        terminal_print("  blue      - Switch to blue display color\n");
-        terminal_print("  green     - Switch to retro green display color\n");
-        terminal_print("  red       - Switch to dark red text mode\n");
-        terminal_print("  white     - Reset interface text to white\n");
+        terminal_print("  help                - Show this application menu\n");
+        terminal_print("  clear               - Clear the terminal\n");
+        terminal_print("  sysinfo             - Display basic information\n");
+        terminal_print("  sleep               - Freeze the OS\n");
+        terminal_print("  echo                - Print arguments to screen\n");
+        terminal_print("  logout              - Log out\n");
+        terminal_print("  blue                - Switch to blue display color\n");
+        terminal_print("  green               - Switch to retro green display color\n");
+        terminal_print("  red                 - Switch to dark red text mode\n");
+        terminal_print("  white               - Reset interface text to white\n");
+        terminal_print("  hex <RRGGBB>        - Set text color using hexadecimal RGB\n");
+        terminal_print("  background <RRGGBB> - Set screen background color using hexadecimal RGB\n");
     } 
     else if (strcmp(cmd, "clear") == 0) {
         clear_screen();
@@ -426,6 +452,27 @@ void execute_command(char *cmd) {
     }
     else if (strcmp(cmd, "white") == 0) {
         current_text_color = 0xFFFFFF;
+    }
+    else if (strcmp(cmd, "hex") == 0) {
+        uint32_t color;
+
+        if (parse_hex_color(args, &color)) {
+            current_text_color = color;
+            terminal_print("Color updated.");
+        } else {
+            terminal_print("Usage: hex RRGGBB");
+        }
+    }
+    else if (strcmp(cmd, "background") == 0) {
+        uint32_t color;
+
+        if (parse_hex_color(args, &color)) {
+            current_bg_color = color;
+            clear_screen();
+            terminal_print("Background updated.");
+        } else {
+            terminal_print("Usage: background RRGGBB");
+        }
     }
     else if (strcmp(cmd, "") == 0) {
     }
